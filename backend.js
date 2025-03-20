@@ -11,6 +11,10 @@ const fs = require("fs");
 const db = require("./database");
 const dashboardRoutes = require("./dashboard");
 
+// Add near the top of your file
+const PING_INTERVAL = 30000; // 30 seconds
+const CONNECTION_TIMEOUT = 60000; // 60 seconds
+
 // Initialize the database
 db.initDatabase().catch(err =>
   console.error("Database initialization failed:", err)
@@ -48,6 +52,19 @@ const clients = new Map();
 
 // room id to client id set map
 const rooms = new Map(); // Store room information
+
+// After creating the WebSocket server
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (ws.isAlive === false) {
+      console.log(`Client timed out, terminating connection`);
+      return ws.terminate();
+    }
+
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, PING_INTERVAL);
 
 const broadcastNewClient = newClientId => {
   // Get new client's network
@@ -177,6 +194,11 @@ const getNetworkId = ip => {
   return null;
 };
 
+// Clean up on server close
+wss.on("close", () => {
+  clearInterval(heartbeatInterval);
+});
+
 wss.on("connection", (ws, req) => {
   // Log all possible IP sources with explanations
   //console.log('IP Detection Sources:');
@@ -185,6 +207,14 @@ wss.on("connection", (ws, req) => {
   // console.log('raw x-forwarded-for split:', req.headers['x-forwarded-for']?.split(',').map(ip => ip.trim())); // All IPs in chain
   //console.log('socket remoteAddress:', req.socket.remoteAddress);  // Direct connection IP
   //console.log('socket localAddress:', req.socket.localAddress);    // Server's local interface IP
+
+  // Set initial alive state
+  ws.isAlive = true;
+
+  // Handle pongs
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
 
   // The priority order for getting the most accurate client IP:
   const clientIP =
