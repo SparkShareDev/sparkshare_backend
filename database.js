@@ -57,15 +57,37 @@ function trackConnection() {
 // Get daily stats for a date range
 function getDailyStats(startDate, endDate) {
   try {
+    // First get existing data from database
     const stmt = db.prepare(`
       SELECT date, connections 
       FROM daily_stats 
       WHERE date BETWEEN ? AND ?
       ORDER BY date ASC
     `);
-    const rows = stmt.all(startDate, endDate);
-    console.log(`Retrieved ${rows.length} records from daily_stats for range ${startDate} to ${endDate}`);
-    return Promise.resolve(rows || []);
+    const existingRows = stmt.all(startDate, endDate);
+    
+    // Create a map for quick lookup of existing data
+    const dataMap = new Map();
+    existingRows.forEach(row => {
+      dataMap.set(row.date, row.connections);
+    });
+    
+    // Generate all dates in the range
+    const result = [];
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+      const dateStr = date.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+      const connections = dataMap.get(dateStr) || 0; // Use existing data or 0
+      result.push({
+        date: dateStr,
+        connections: connections
+      });
+    }
+    
+    console.log(`Generated ${result.length} records for range ${startDate} to ${endDate} (${existingRows.length} from database)`);
+    return Promise.resolve(result);
   } catch (err) {
     console.error("Error getting daily stats:", err);
     return Promise.reject(err);

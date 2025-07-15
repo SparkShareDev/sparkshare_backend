@@ -43,8 +43,7 @@ const server = http.createServer(app);
 // Create WebSocket server attached to HTTP server
 const wss = new WebSocket.Server({
   server,
-  host: "::", // Enable IPv6
-  ipv6Only: true, // Allow dual-stack (both IPv4 and IPv6)
+  // Remove host and ipv6Only for dual-stack support
 });
 
 // id to websocket map
@@ -172,13 +171,16 @@ const getClientIPs = req => {
   const forwardedIP = req.headers["x-forwarded-for"]?.split(",")[0];
 
   let ipv6 = null;
+  let ipv4 = null;
 
-  // Only handle IPv6
+  // Handle both IPv4 and IPv6
   if (rawIP && rawIP.includes(":")) {
     ipv6 = rawIP;
+  } else if (rawIP && rawIP.includes(".")) {
+    ipv4 = rawIP;
   }
 
-  return { ipv6, forwardedIP };
+  return { ipv6, ipv4, forwardedIP };
 };
 
 // Add network utilities at top of file
@@ -189,6 +191,15 @@ const getNetworkId = ip => {
   if (ip.includes(":")) {
     // Get first four segments for /64 subnet
     return ip.split(":").slice(0, 4).join(":");
+  }
+
+  // For IPv4
+  if (ip.includes(".")) {
+    // Get first three octets for /24 subnet (class C network)
+    const parts = ip.split(".");
+    if (parts.length === 4) {
+      return parts.slice(0, 3).join(".");
+    }
   }
 
   return null;
@@ -308,8 +319,8 @@ wss.on("connection", (ws, req) => {
 });
 
 // Start the server on port 8080
-server.listen(8080, "::", () => {
-  console.log("Server running on http://localhost:8080");
+server.listen(8080, () => {
+  console.log("Server running on http://localhost:8080 (dual-stack IPv4/IPv6)");
   console.log("Dashboard available at http://localhost:8080/dashboard");
 });
 

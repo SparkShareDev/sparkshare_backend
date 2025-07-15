@@ -10,6 +10,10 @@ RUN apk add --no-cache python3 make g++ sqlite sqlite-dev
 COPY package*.json ./
 RUN npm install
 
+# CRITICAL: Rebuild native modules for the target architecture
+# RUN npm rebuild better-sqlite3 --build-from-source
+
+
 # Bundle app source
 COPY . .
 
