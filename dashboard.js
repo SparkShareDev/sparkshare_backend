@@ -2,7 +2,25 @@ const express = require("express");
 const router = express.Router();
 const fs = require("fs");
 const path = require("path");
-const Mustache = require("mustache");
+
+// Load environment variables
+require('dotenv').config();
+
+// API Key middleware
+const requireApiKey = (req, res, next) => {
+  const apiKey = req.headers['x-api-key'] || req.query.api_key;
+  const validApiKey = process.env.API_KEY;
+  
+  if (!validApiKey) {
+    return res.status(500).json({ error: 'API key not configured on server' });
+  }
+  
+  if (!apiKey || apiKey !== validApiKey) {
+    return res.status(401).json({ error: 'Invalid or missing API key' });
+  }
+  
+  next();
+};
 
 // Read template file
 // let template;
@@ -34,6 +52,9 @@ router.get("/", async (req, res) => {
     // Get stats
     const dailyStats = await db.getDailyStats(startDate, endDate);
     console.log(`Retrieved ${dailyStats.length} daily stats records`);
+    
+    // Pass API key to frontend (for potential AJAX calls)
+    const apiKey = process.env.API_KEY || '';
 
     // Create a debug version of the data
     const dataDebug = JSON.stringify(dailyStats, null, 2);
@@ -367,7 +388,22 @@ router.get("/", async (req, res) => {
         <script>
           // Chart initialization with enhanced options
           let dailyData = ${JSON.stringify(dailyStats)};
+          const apiKey = '${apiKey}';
           console.log("Data loaded:", dailyData);
+          
+          // Function to make authenticated API calls
+          function makeApiCall(endpoint, options = {}) {
+            const headers = {
+              'Content-Type': 'application/json',
+              'X-API-Key': apiKey,
+              ...options.headers
+            };
+            
+            return fetch(endpoint, {
+              ...options,
+              headers
+            });
+          }
           
           // Calculate summary statistics
           function updateStats() {
@@ -555,8 +591,8 @@ router.get("/", async (req, res) => {
   }
 });
 
-// API endpoint for stats in JSON format
-router.get("/api", async (req, res) => {
+// API endpoint for stats in JSON format (protected with API key)
+router.get("/api", requireApiKey, async (req, res) => {
   try {
     const db = req.app.get("db");
 

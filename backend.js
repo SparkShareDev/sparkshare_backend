@@ -35,7 +35,6 @@ app.set("db", db);
 
 // Use dashboard routes
 app.use("/dashboard", dashboardRoutes);
-app.use("/stats", dashboardRoutes); // For backward compatibility if needed
 
 // Create HTTP server and attach both Express and WebSocket
 const server = http.createServer(app);
@@ -189,6 +188,7 @@ const getNetworkId = ip => {
 
   // For IPv6
   if (ip.includes(":")) {
+    // This works fine for the most part, because the ip is always in a consistent format, because we get it from the nginx proxy and most networks have a /64 subnet
     // Get first four segments for /64 subnet
     return ip.split(":").slice(0, 4).join(":");
   }
@@ -259,9 +259,11 @@ wss.on("connection", (ws, req) => {
 
   ws.on("message", message => {
     console.log(`Received: ${message}`);
-    const data = JSON.parse(message);
+    
+    try {
+      const data = JSON.parse(message);
 
-    switch (data.type) {
+      switch (data.type) {
       case "set-username":
         // Set the username of the client
         ws.username = data.username;
@@ -292,8 +294,12 @@ wss.on("connection", (ws, req) => {
         }
         break;
 
-      default:
-        console.log("Unknown message type:", data.type);
+              default:
+          console.log("Unknown message type:", data.type);
+      }
+    } catch (error) {
+      console.error(`JSON parsing error from client ${id}:`, error.message);
+      console.error(`Raw message: ${message}`);
     }
   });
 

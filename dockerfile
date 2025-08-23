@@ -10,24 +10,18 @@ RUN apk add --no-cache python3 make g++ sqlite sqlite-dev
 COPY package*.json ./
 RUN npm install
 
-# CRITICAL: Rebuild native modules for the target architecture
-# RUN npm rebuild better-sqlite3 --build-from-source
-
-
 # Bundle app source
 COPY . .
 
-# Create data directory for SQLite and views directory for templates
-RUN mkdir -p data && chmod 777 data
-RUN mkdir -p views && chmod 777 views
-
-# Enable IPv6 in Docker
-ENV NODE_OPTIONS="--dns-result-order=ipv4first"
+# Ensure writable data directory (simplified permissions as requested)
+RUN mkdir -p data && chmod -R 777 data
 
 EXPOSE 8080
 
 CMD [ "node", "backend.js" ]
 
-
-# deploy
+# Production command:
 # docker buildx build --platform linux/amd64,linux/arm64 -t johannbuild/spark-share_backend:latest . --push
+
+# Staging command:
+# docker buildx build --platform linux/amd64,linux/arm64 -t johannbuild/spark-share_backend_staging:latest . --push

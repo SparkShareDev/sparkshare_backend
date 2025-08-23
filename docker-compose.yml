@@ -1,14 +1,15 @@
+# This docker-compose.yml shows the production deployment setup
+# For transparency - not intended for public deployment
+
 version: '3'
 services:
   websocket-server:
     image: johannbuild/spark-share_backend:latest
     platform: linux/arm64
     build: .
-    ports:
-      - "280:80"
-      - "2443:443"
+    # Ports handled by reverse proxy (nginx/traefik)
+    # Container runs on internal port 8080
     volumes:
-      - ./greenlock.d:/usr/src/app/greenlock.d
       - ./data:/usr/src/app/data
     environment:
       - NODE_ENV=production
