@@ -1,4 +1,4 @@
-## WebRTC Signaling Server (Spark Share Backend)
+## WebRTC Signaling Server (SparkShare Backend)
 
 A lightweight WebSocket signaling server with Express, IPv4/IPv6 detection, simple network-based rooming, and a small stats dashboard (Chart.js) backed by SQLite.
 
