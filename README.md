@@ -26,4 +26,7 @@ dockerfile           # Node 20-alpine, SQLite build deps
 docker-compose.yml   # Example deployment (behind reverse proxy)
 ```
 
+## Related Links
+- App: [sparkshare.app](https://sparkshare.app)  
+- Landing page: [home.sparkshare.app](https://home.sparkshare.app)
 
