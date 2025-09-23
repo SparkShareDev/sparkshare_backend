@@ -48,8 +48,24 @@ const wss = new WebSocket.Server({
 // id to websocket map
 const clients = new Map();
 
-// room id to client id set map
+// room id (networkId) to set of client ids map
 const rooms = new Map(); // Store room information
+
+// Alias table: map secondary/old network IDs to a canonical room ID.
+// After a fusion of B into A, we set aliasToCanonical.set('B', 'A').
+// This keeps future joins via 'B' landing in the room 'A'.
+const aliasToCanonical = new Map();
+
+// Resolve a network ID to its canonical representative by following alias links.
+// We expect only 1-2 aliases, so this is effectively O(1).
+const resolveCanonical = id => {
+  if (!id) return null;
+  let cur = id;
+  while (aliasToCanonical.has(cur)) {
+    cur = aliasToCanonical.get(cur);
+  }
+  return cur;
+};
 
 // After creating the WebSocket server
 const heartbeatInterval = setInterval(() => {
@@ -164,6 +180,59 @@ const broadcastClientDisconnect = disconnectedClientId => {
   );
 };
 
+// Function to fusion two rooms when clients exchange their network ids over bluetooth
+const fuseRooms = (networkId1, networkId2) => {
+  // Normalize both ids to their canonical rooms
+  const a = resolveCanonical(networkId1) || networkId1;
+  const b = resolveCanonical(networkId2) || networkId2;
+  if (!rooms.has(a) || !rooms.has(b)) return;
+  if (a === b) return; // Same room, nothing to do
+  
+  console.log(`Fusing rooms: ${networkId1}(${a}) and ${networkId2}(${b})`);
+  
+  // Get both room sets (destination a, source b)
+  const room1 = rooms.get(a);
+  const room2 = rooms.get(b);
+  
+  // Merge room2 into room1 (room1 becomes the merged room)
+  room2.forEach(clientId => {
+    room1.add(clientId);
+    // Update the client's networkId to the merged room
+    const client = clients.get(clientId);
+    if (client) {
+      client.networkId = a;
+    }
+  });
+  
+  // Remove the old room2
+  rooms.delete(b);
+  // Remember the alias so future joins via b go into a
+  aliasToCanonical.set(b, a);
+  
+  // Broadcast to all clients in the merged room about new peers
+  const allClients = Array.from(room1).map(clientId => {
+    const ws = clients.get(clientId);
+    return {
+      id: clientId,
+      username: ws?.username || "Anonymous",
+      avatarNr: ws?.avatarNr,
+    };
+  });
+  
+  // Notify all clients about the room fusion and new peers
+  room1.forEach(clientId => {
+    const client = clients.get(clientId);
+    if (client) {
+      client.send(JSON.stringify({
+        type: "room-fused",
+        allPeers: allClients.filter(peer => peer.id !== clientId)
+      }));
+    }
+  });
+  
+  console.log(`Room fusion complete. New room ${a} has ${room1.size} clients`);
+}
+
 // Add IP handling functions
 const getClientIPs = req => {
   const rawIP = req.socket.remoteAddress;
@@ -241,20 +310,22 @@ wss.on("connection", (ws, req) => {
   // console.log(`Client connected IP: ${ipv6 || forwardedIP}`);
 
   const networkId = getNetworkId(clientIP);
+  // Normalize via alias mapping so joins using an old network id land in the canonical room
+  const canonicalId = resolveCanonical(networkId) || networkId;
 
   // User wirt direkt in ein Netzwerk gejoined
-  if (networkId) {
-    if (!rooms.has(networkId)) {
-      rooms.set(networkId, new Set());
+  if (canonicalId) {
+    if (!rooms.has(canonicalId)) {
+      rooms.set(canonicalId, new Set());
     }
-    rooms.get(networkId).add(id);
+    rooms.get(canonicalId).add(id);
 
-    console.log(`Client ${id} joined network ${networkId}`);
-    console.log(`Network peers: ${Array.from(rooms.get(networkId))}`);
+    console.log(`Client ${id} joined network ${canonicalId}${canonicalId !== networkId ? ` (via alias ${networkId})` : ''}`);
+    console.log(`Network peers: ${Array.from(rooms.get(canonicalId))}`);
   }
-  ws.networkId = networkId;
+  ws.networkId = canonicalId;
 
-  ws.send(JSON.stringify({ type: "welcome", id }));
+  ws.send(JSON.stringify({ type: "welcome", id, rawNetworkId: networkId })); // networkId: canonicalId
   //broadcastPeerList(); // Broadcast to all when new client connects
 
   ws.on("message", message => {
@@ -292,9 +363,20 @@ wss.on("connection", (ws, req) => {
             JSON.stringify({ type: "error", message: "Target peer not found" })
           );
         }
+      case "ble-join":
+        // Join rooms that exchanged their network ids over bluetooth (room fusion)
+        // Normalize both sides via aliases to avoid re-fusing already merged rooms
+        if (data.otherNetworkId) {
+          const thisRoot = resolveCanonical(ws.networkId) || ws.networkId;
+          const otherRoot = resolveCanonical(data.otherNetworkId) || data.otherNetworkId;
+          if (thisRoot && otherRoot && thisRoot !== otherRoot) {
+            console.log(`Client ${id} requesting room fusion: ${thisRoot} + ${otherRoot}`);
+            fuseRooms(thisRoot, otherRoot);
+          }
+        }
         break;
 
-              default:
+      default:
           console.log("Unknown message type:", data.type);
       }
     } catch (error) {
@@ -310,14 +392,21 @@ wss.on("connection", (ws, req) => {
     clients.delete(id);
 
     // Remove client from room
-    if (networkId && rooms.has(networkId)) {
-      rooms.get(networkId).delete(id);
-      if (rooms.get(networkId).size === 0) {
-        rooms.delete(networkId);
+    if (ws.networkId && rooms.has(ws.networkId)) {
+      rooms.get(ws.networkId).delete(id);
+      if (rooms.get(ws.networkId).size === 0) {
+        // If the canonical room becomes empty, remove it and any aliases pointing to it
+        rooms.delete(ws.networkId);
+        // Cleanup aliases -> canonical references
+        for (const [alias, canonical] of Array.from(aliasToCanonical.entries())) {
+          if (canonical === ws.networkId) {
+            aliasToCanonical.delete(alias);
+          }
+        }
       }
-      console.log(`Client ${id} left network ${networkId}`);
-      const networkPeers = rooms.get(networkId)
-        ? Array.from(rooms.get(networkId))
+      console.log(`Client ${id} left network ${ws.networkId}`);
+      const networkPeers = rooms.get(ws.networkId)
+        ? Array.from(rooms.get(ws.networkId))
         : [];
       console.log(`Network peers: ${networkPeers}`);
     }
