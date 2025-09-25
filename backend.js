@@ -11,9 +11,10 @@ const fs = require("fs");
 const db = require("./database");
 const dashboardRoutes = require("./dashboard");
 
-// Add near the top of your file
-const PING_INTERVAL = 30000; // 30 seconds
-const CONNECTION_TIMEOUT = 60000; // 60 seconds
+// Heartbeat / connection supervision
+const PING_INTERVAL = 30000; // alle 30s ein Ping
+const CONNECTION_TIMEOUT = 60000; // (reserviert) absolute Obergrenze (aktuell ungenutzt)
+const MAX_MISSED_PONGS = 2; // Anzahl verpasster Pongs bevor wir die Verbindung schließen
 
 // Initialize the database
 db.initDatabase().catch(err =>
@@ -67,16 +68,47 @@ const resolveCanonical = id => {
   return cur;
 };
 
-// After creating the WebSocket server
+// Heartbeat / Health Monitoring mit Pong-Toleranz & RTT Messung
 const heartbeatInterval = setInterval(() => {
   wss.clients.forEach(ws => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+
+    // Wenn beim letzten Zyklus kein Pong kam
     if (ws.isAlive === false) {
-      console.log(`Client timed out, terminating connection`);
-      return ws.terminate();
+      ws.missedPongs = (ws.missedPongs || 0) + 1;
+      console.warn(`Heartbeat: missed pong #${ws.missedPongs} client=${ws.id || 'unknown'} network=${ws.networkId || 'n/a'}`);
+
+      if (ws.missedPongs >= MAX_MISSED_PONGS) {
+        console.warn(`Heartbeat: closing client ${ws.id || 'unknown'} after ${ws.missedPongs} missed pongs`);
+        try {
+          // Graceful Close zuerst (Custom Code 4000)
+          ws.close(4000, 'heartbeat-timeout');
+          // Falls das hängen bleibt -> Hard-Terminate nach 2s
+          setTimeout(() => {
+            if (ws.readyState !== WebSocket.CLOSING && ws.readyState !== WebSocket.CLOSED) {
+              console.warn(`Heartbeat: force terminate client ${ws.id || 'unknown'}`);
+              try { ws.terminate(); } catch (_) {}
+            }
+          }, 2000);
+        } catch (e) {
+          console.error('Graceful close failed, terminating', e);
+          try { ws.terminate(); } catch (_) {}
+        }
+        return; // nichts weiter versuchen
+      }
+    } else {
+      // Wir haben Aktivität gesehen -> Reset
+      ws.missedPongs = 0;
     }
 
+    // Nächsten Zyklus vorbereiten
     ws.isAlive = false;
-    ws.ping();
+    try {
+      // Ping mit Timestamp Payload -> RTT Messung möglich
+      ws.ping(Date.now().toString());
+    } catch (e) {
+      console.error('Ping send failed', e);
+    }
   });
 }, PING_INTERVAL);
 
@@ -290,10 +322,21 @@ wss.on("connection", (ws, req) => {
 
   // Set initial alive state
   ws.isAlive = true;
+  ws.missedPongs = 0;
 
   // Handle pongs
-  ws.on("pong", () => {
+  ws.on("pong", (data) => {
     ws.isAlive = true;
+    if (data) {
+      const sentAt = Number(data.toString());
+      if (!Number.isNaN(sentAt)) {
+        const rtt = Date.now() - sentAt;
+        // Nur loggen wenn auffällig
+        if (rtt > 2000) {
+          console.warn(`High WS RTT ${rtt}ms client=${ws.id || 'unknown'} network=${ws.networkId || 'n/a'}`);
+        }
+      }
+    }
   });
 
   // The priority order for getting the most accurate client IP:
@@ -304,6 +347,7 @@ wss.on("connection", (ws, req) => {
 
   // Assign a unique ID to the connected client
   const id = Math.random().toString(36).substring(7);
+  ws.id = id; // für Logging / Heartbeat
   clients.set(id, ws);
 
   // const { ipv6, forwardedIP } = getClientIPs(req);
@@ -385,8 +429,8 @@ wss.on("connection", (ws, req) => {
     }
   });
 
-  ws.on("close", () => {
-    console.log(`Client disconnected: ${id}`);
+  ws.on("close", (code, reason) => {
+    console.log(`Client disconnected: ${id} code=${code} reason=${reason?.toString() || ''} missedPongs=${ws.missedPongs || 0}`);
     // broadcastPeerList();
     broadcastClientDisconnect(id); // Broadcast to all when client disconnects
     clients.delete(id);
