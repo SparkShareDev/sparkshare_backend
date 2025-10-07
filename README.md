@@ -32,6 +32,6 @@ docker-compose.yml   # Example deployment (behind reverse proxy)
 
 ## Stay Connected
 <!-- Neutral badge palette keeps focus on the main links while staying noticeable. -->
-[![Instagram](https://img.shields.io/badge/Instagram-24292e?style=for-the-badge&logo=instagram&logoColor=FCAF45)](https://www.instagram.com/sparkshare)
+[![Instagram](https://img.shields.io/badge/Instagram-24292e?style=for-the-badge&logo=instagram&logoColor=FCAF45)](https://www.instagram.com/sparkshare.app/)
 <!-- To add more social profiles, duplicate the badge pattern above and update the links. -->
 
