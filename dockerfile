@@ -20,8 +20,8 @@ EXPOSE 8080
 
 CMD [ "node", "backend.js" ]
 
-# Production command:
-# docker buildx build --platform linux/amd64,linux/arm64 -t johannbuild/spark-share_backend:latest . --push
+# Production command (Version + latest):
+# docker buildx build --platform linux/amd64,linux/arm64 -t johannbuild/spark-share_backend:1.0.1 -t johannbuild/spark-share_backend:latest . --push
 
-# Staging command:
-# docker buildx build --platform linux/amd64,linux/arm64 -t johannbuild/spark-share_backend_staging:latest . --push
+# Staging command (Version + latest):
+# docker buildx build --platform linux/amd64,linux/arm64 -t johannbuild/spark-share_backend_staging:1.0.1 -t johannbuild/spark-share_backend_staging:latest . --push
