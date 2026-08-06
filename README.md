@@ -22,7 +22,7 @@ backend.js           # Express + WebSocket server, routing, signaling
 dashboard.js         # Dashboard route (HTML + /dashboard/api)
 database.js          # SQLite setup (daily_stats), tracking & queries
 public/              # Static assets (for dashboard)
-dockerfile           # Node 20-alpine, SQLite build deps
+dockerfile           # Node 24-alpine, SQLite build deps
 docker-compose.yml   # Example deployment (behind reverse proxy)
 ```
 

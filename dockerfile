@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:24-alpine
 
 # Create app directory
 WORKDIR /usr/src/app
@@ -8,7 +8,7 @@ RUN apk add --no-cache python3 make g++ sqlite sqlite-dev
 
 # Install app dependencies
 COPY package*.json ./
-RUN npm install
+RUN npm ci --omit=dev
 
 # Bundle app source
 COPY . .
